@@ -1,6 +1,3 @@
-
-
-​
 import streamlit as st
 import pandas as pd
 import folium
@@ -15,7 +12,6 @@ st.set_page_config(
 st.title("🌾 Control de Explotación Agrícola y PAC")
 st.subheader("Castilla y León")
 
-# Panel Lateral: Gestión de PACs
 st.sidebar.header("📁 Cargar Declaraciones PAC")
 uploaded_files = st.sidebar.file_uploader(
     "Sube tus archivos Excel (.xlsx) de la Junta de CyL", 
@@ -55,3 +51,4 @@ if uploaded_files:
             st.markdown("### Tabla de Datos Unificada")
             st.dataframe(df_total, use_container_width=True)
 else:
+    st.info("👈 Sube al menos un archivo Excel de la PAC desde el menú lateral para empezar.")
