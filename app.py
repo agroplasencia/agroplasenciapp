@@ -23,7 +23,6 @@ def clean_pac_dataframe(file):
     df_raw = pd.read_excel(file)
     header_idx = None
     
-    # Buscar la fila donde están las cabeceras reales
     for idx, row in df_raw.iterrows():
         row_values = [str(val).upper() for val in row.values if pd.notna(val)]
         if any("MUNICIPIO" in v or "POLÍGONO" in v or "POLIGONO" in v or "PARCELA" in v for v in row_values):
@@ -35,7 +34,6 @@ def clean_pac_dataframe(file):
     else:
         df = df_raw
 
-    # Limpiar columnas sin nombre y filas vacías
     df = df.dropna(how='all')
     df.columns = [str(c).strip() for c in df.columns]
     return df
@@ -56,38 +54,34 @@ if uploaded_files:
         tab1, tab2, tab3 = st.tabs(["🗺️ Mapa SIGPAC", "📊 Resumen Recintos", "📋 Datos PAC"])
         
         with tab1:
-            st.markdown("### Ubicación General de Recintos")
-            # Centro en Castrojeriz / provincia de Burgos
-            m = folium.Map(location=[42.2881, -4.1378], zoom_start=12)
+            st.markdown("### Mapa con Parcelas y Capa SIGPAC")
             
-            # Detectar columnas de polígono y parcela ignorando mayúsculas/minúsculas
-            cols = {str(c).upper(): c for c in df_total.columns}
-            col_poli = next((cols[k] for k in cols if "POLI" in k), None)
-            col_parc = next((cols[k] for k in cols if "PARC" in k), None)
-            col_muni = next((cols[k] for k in cols if "MUNI" in k), None)
+            # Crear mapa centrado en la zona de Castrojeriz (Burgos)
+            m = folium.Map(location=[42.2881, -4.1378], zoom_start=14)
             
-            if col_poli and col_parc:
-                count = 0
-                for idx, row in df_total.iterrows():
-                    p_val = row[col_poli]
-                    pa_val = row[col_parc]
-                    m_val = row[col_muni] if col_muni else "Castrojeriz"
-                    
-                    if pd.notna(p_val) and pd.notna(pa_val):
-                        # Puntos aproximados distribuidos por la zona
-                        lat = 42.2881 + ((idx % 10) * 0.005)
-                        lon = -4.1378 + ((idx // 10) * 0.005)
-                        
-                        folium.Marker(
-                            location=[lat, lon],
-                            popup=f"<b>{m_val}</b><br>Polígono: {p_val}<br>Parcela: {pa_val}",
-                            icon=folium.Icon(color="green", icon="leaf")
-                        ).add_to(m)
-                        count += 1
-                
-                st.caption(f"📍 Mostrando {count} parcelas detectadas en la lista.")
+            # Capa 1: Ortofoto Satélite de España (PNOA)
+            folium.TileLayer(
+                tiles='https://www.ign.es/wms-inspire/pnoa-ma?SERVICE=WMS&REQUEST=GetMap&LAYERS=OI.OrthoimageCoverage&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&VERSION=1.3.0&WIDTH=256&HEIGHT=256&CRS=EPSG:3857&BBOX={bbox}',
+                attr='IGN - PNOA',
+                name='Foto Satélite (PNOA)',
+                overlay=False
+            ).add_to(m)
+
+            # Capa 2: Capa oficial del SIGPAC (Líneas y Recintos del Ministerio)
+            folium.WmsTileLayer(
+                url='https://wms.mapama.gob.es/wms/wms.aspx',
+                layers='PARCELA,RECINTO',
+                fmt='image/png',
+                transparent=True,
+                name='Líneas del SIGPAC',
+                overlay=True,
+                control=True
+            ).add_to(m)
+
+            folium.LayerControl().add_to(m)
             
-            st_folium(m, width="100%", height=500)
+            st.info("💡 La capa de parcelas del SIGPAC se dibuja automáticamente en el mapa. Haz zoom en la zona de tus fincas para ver los lindes amarillos/rojos.")
+            st_folium(m, width="100%", height=600)
             
         with tab2:
             st.markdown("### Resumen de Datos")
