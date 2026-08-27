@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("🌾 Mi Control Agrícola Personal")
-st.subheader("Visor de Parcelas y Recintos PAC")
+st.subheader("Visor de Parcelas (Burgos y Palencia)")
 
 st.sidebar.header("📁 Cargar Declaración PAC")
 uploaded_files = st.sidebar.file_uploader(
@@ -41,16 +41,26 @@ def clean_pac_dataframe(file):
 
 @st.cache_data(ttl=86400)
 def get_catastro_polygon(provincia, municipio, poligono, parcela):
-    """Obtiene los lindes geométricos reales desde la API del Catastro/SIGPAC"""
+    """Obtiene los lindes geométricos reales desde Catastro soportando Burgos (09) y Palencia (34)"""
     try:
-        p = str(int(provincia)).zfill(2) if str(provincia).isdigit() else "09"
-        m = str(int(municipio)).zfill(3) if str(municipio).isdigit() else "082"
-        pol = str(int(poligono)).zfill(3)
-        par = str(int(parcela)).zfill(5)
+        # Extraer solo números por si viene con texto
+        p_num = ''.join(filter(str.isdigit, str(provincia)))
+        m_num = ''.join(filter(str.isdigit, str(municipio)))
+        pol_num = ''.join(filter(str.isdigit, str(poligono)))
+        par_num = ''.join(filter(str.isdigit, str(parcela)))
         
-        # Referencia catastral de rústica de 20 caracteres: Prov(2) + Muni(3) + Clase(A) + Poli(3) + Parc(5) + 0000 + Control(2)
-        # Probamos consulta directa por atributos WFS
-        url = f"https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?service=wfs&v=2.0.0&request=getfeature&STOREDQUERY_ID=GetParcel&srsname=EPSG:4326&padd={p}{m}0A{pol}{par}&outputformat=application/json"
+        p = p_num.zfill(2) if p_num else "09"
+        m = m_num.zfill(3) if m_num else "082"
+        pol = pol_num.zfill(3)
+        par = par_num.zfill(5)
+        
+        # Petición a Catastro INSPIRE WFS
+        url = (
+            f"https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?"
+            f"service=wfs&v=2.0.0&request=getfeature&"
+            f"STOREDQUERY_ID=GetParcel&srsname=EPSG:4326&"
+            f"padd={p}{m}0A{pol}{par}&outputformat=application/json"
+        )
         
         r = requests.get(url, timeout=6)
         if r.status_code == 200:
@@ -72,17 +82,16 @@ if uploaded_files:
     
     if dfs:
         df_total = pd.concat(dfs, ignore_index=True)
-        st.success(f" Se han cargado {len(uploaded_files)} archivo(s) correctamente.")
+        st.success(f"Se han cargado {len(uploaded_files)} archivo(s) correctamente.")
         
         tab1, tab2 = st.tabs(["🗺️ Mapa de Fincas", "📋 Listado y Resumen"])
         
         with tab1:
             st.markdown("### Tus Parcelas sobre Satélite")
             
-            # Centro por defecto en Castrojeriz
-            m = folium.Map(location=[42.2881, -4.1378], zoom_start=13)
+            # Centro en el límite entre Burgos y Palencia (zona Castrojeriz - Astudillo)
+            m = folium.Map(location=[42.23, -4.20], zoom_start=12)
             
-            # Capa Ortofoto Satélite HD
             folium.TileLayer(
                 tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                 attr='Esri World Imagery',
@@ -90,51 +99,44 @@ if uploaded_files:
                 overlay=False
             ).add_to(m)
 
+            # Mapeo de columnas
             cols = {str(c).upper(): c for c in df_total.columns}
             col_poli = next((cols[k] for k in cols if "POLI" in k), None)
             col_parc = next((cols[k] for k in cols if "PARC" in k), None)
             col_muni = next((cols[k] for k in cols if "MUNI" in k), None)
             col_prov = next((cols[k] for k in cols if "PROV" in k), None)
-            col_uso = next((cols[k] for k in cols if "USO" in k), None)
 
             if col_poli and col_parc:
-                colores_uso = {
-                    "TA": "#e1b12c", # Tierra Arable (Amarillo)
-                    "FO": "#44bd32", # Forestal (Verde)
-                    "PA": "#00a8ff", # Pastos (Azul)
-                    "PR": "#9c88ff", # Pastizal (Morado)
-                    "DEFAULT": "#e84118" # Naranja
-                }
-                
+                colores = ["#00a8ff", "#e1b12c", "#44bd32", "#e84118", "#9c88ff", "#f5cd79"]
                 cargadas = 0
-                with st.spinner("Buscando y dibujando lindes de tus fincas..."):
+                
+                with st.spinner("Cargando parcelas de Burgos y Palencia desde Catastro..."):
                     for idx, row in df_total.iterrows():
                         poli = row[col_poli]
                         parc = row[col_parc]
                         muni = row[col_muni] if col_muni else 82
                         prov = row[col_prov] if col_prov else 9
-                        uso = str(row[col_uso]).strip().upper() if col_uso and pd.notna(row[col_uso]) else "DEFAULT"
                         
                         if pd.notna(poli) and pd.notna(parc):
                             geom = get_catastro_polygon(prov, muni, poli, parc)
                             if geom:
-                                color = colores_uso.get(uso, colores_uso["DEFAULT"])
+                                color = colores[idx % len(colores)]
                                 folium.GeoJson(
                                     geom,
                                     style_function=lambda x, c=color: {
                                         'fillColor': c,
-                                        'color': '#ffffff', # Borde blanco
+                                        'color': '#ffffff',
                                         'weight': 2.5,
-                                        'fillOpacity': 0.45
+                                        'fillOpacity': 0.5
                                     },
-                                    tooltip=f"<b>Polígono {poli} | Parcela {parc}</b><br>Uso: {uso}"
+                                    tooltip=f"<b>Prov: {prov} | Muni: {muni}</b><br>Polígono {poli} | Parcela {parc}"
                                 ).add_to(m)
                                 cargadas += 1
                 
                 if cargadas > 0:
-                    st.success(f"📍 ¡Conseguido! Se han pintado {cargadas} parcelas en el mapa.")
+                    st.success(f"📍 ¡Conseguido! Se han dibujado {cargadas} parcelas de Burgos/Palencia.")
                 else:
-                    st.info("📌 Si no se cargan automáticamente por red, utiliza la pestaña de datos para revisar los números de finca.")
+                    st.warning("⚠️ No se han podido obtener los contornos automáticamente. Revisa la pestaña 'Listado' para verificar los códigos de provincia/municipio del Excel.")
 
             st_folium(m, width="100%", height=650)
             
