@@ -2,9 +2,7 @@ import streamlit as st
 import pandas as pd
 import folium
 from streamlit_folium import st_folium
-import geopandas as gpd
 import requests
-import json
 
 st.set_page_config(
     page_title="Control Agrícola PAC",
@@ -42,26 +40,26 @@ def clean_pac_dataframe(file):
     return df
 
 @st.cache_data(ttl=3600)
-def get_parcela_geometry(provincia, municipio, poligono, parcela):
-    """Consulta la geometría GeoJSON del Catastro / WFS público"""
+def get_catastro_geojson(provincia, municipio, poligono, parcela):
+    """Obtiene el GeoJSON con los lindes oficiales del Catastro/SIGPAC"""
     try:
-        # Formatear números
-        prov = str(provincia).zfill(2)
-        muni = str(municipio).zfill(3)
-        poli = str(poligono).zfill(3)
-        parc = str(parcela).zfill(5)
+        # Formatear códigos con ceros a la izquierda
+        p = str(int(provincia)).zfill(2) if str(provincia).isdigit() else "09" # 09 Burgos por defecto
+        m = str(int(municipio)).zfill(3) if str(municipio).isdigit() else "082" # 082 Castrojeriz por defecto
+        pol = str(int(poligono)).zfill(3)
+        par = str(int(parcela)).zfill(5)
         
-        # API WFS de Catastro para obtener los limites de la parcela
+        # Consulta al servicio WFS de Catastro España
         url = (
             f"https://ovc.catastro.meh.es/INSPIRE/wfsCP.aspx?"
             f"service=wfs&v=2.0.0&request=getfeature&"
             f"STOREDQUERY_ID=GetParcel&srsname=EPSG:4326&"
-            f"padd=34{muni}{poli}{parc}&outputformat=application/json"
+            f"padd={p}{m}0A{pol}{par}&outputformat=application/json"
         )
         
-        response = requests.get(url, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            data = r.json()
             if "features" in data and len(data["features"]) > 0:
                 return data["features"][0]
     except Exception:
@@ -86,8 +84,8 @@ if uploaded_files:
         with tab1:
             st.markdown("### Mapa de Parcelas Delimitadas")
             
-            # Crear mapa satélite ESRI por defecto
-            m = folium.Map(location=[42.19, -4.29], zoom_start=13)
+            # Centro en Castrojeriz (Burgos)
+            m = folium.Map(location=[42.2881, -4.1378], zoom_start=13)
             
             folium.TileLayer(
                 tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -96,24 +94,25 @@ if uploaded_files:
                 overlay=False
             ).add_to(m)
 
-            # Detectar columnas
             cols = {str(c).upper(): c for c in df_total.columns}
             col_poli = next((cols[k] for k in cols if "POLI" in k), None)
             col_parc = next((cols[k] for k in cols if "PARC" in k), None)
             col_muni = next((cols[k] for k in cols if "MUNI" in k), None)
+            col_prov = next((cols[k] for k in cols if "PROV" in k), None)
 
             if col_poli and col_parc:
-                features = []
-                colores = ["#0088ff", "#ff8800", "#00ff88", "#ff0088", "#9900ff"]
+                colores = ["#00a8ff", "#e1b12c", "#44bd32", "#e84118", "#9c88ff"]
+                cargadas = 0
                 
-                with st.spinner("Cargando contornos de las parcelas desde el Catastro..."):
+                with st.spinner("Descargando contornos de las parcelas..."):
                     for idx, row in df_total.iterrows():
                         poli = row[col_poli]
                         parc = row[col_parc]
-                        muni = row[col_muni] if col_muni else "001"
+                        muni = row[col_muni] if col_muni else 82
+                        prov = row[col_prov] if col_prov else 9
                         
                         if pd.notna(poli) and pd.notna(parc):
-                            geom = get_parcela_geometry(34, muni, poli, parc) # 34 = Palencia (o ajustar según provincia)
+                            geom = get_catastro_geojson(prov, muni, poli, parc)
                             if geom:
                                 color = colores[idx % len(colores)]
                                 folium.GeoJson(
@@ -121,12 +120,18 @@ if uploaded_files:
                                     style_function=lambda x, c=color: {
                                         'fillColor': c,
                                         'color': c,
-                                        'weight': 2,
+                                        'weight': 3,
                                         'fillOpacity': 0.4
                                     },
-                                    tooltip=f"Polígono {poli} - Parcela {parc}"
+                                    tooltip=f"Polígono {poli} | Parcela {parc}"
                                 ).add_to(m)
-                                
+                                cargadas += 1
+                
+                if cargadas > 0:
+                    st.success(f"📍 Se han dibujado {cargadas} contornos de parcelas en el mapa.")
+                else:
+                    st.warning("⚠️ No se pudieron obtener los contornos. Comprueba la pestaña 'Resumen Recintos' para ver los números de provincia/municipio.")
+
             st_folium(m, width="100%", height=650)
             
         with tab2:
