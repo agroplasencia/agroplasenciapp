@@ -1,7 +1,7 @@
+
 import streamlit as st
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
+import streamlit.components.v1 as components
 
 st.set_page_config(
     page_title="Control Agrícola PAC",
@@ -51,37 +51,14 @@ if uploaded_files:
         df_total = pd.concat(dfs, ignore_index=True)
         st.success(f"Se han cargado {len(uploaded_files)} archivo(s) PAC con éxito.")
         
-        tab1, tab2, tab3 = st.tabs(["🗺️ Mapa SIGPAC", "📊 Resumen Recintos", "📋 Datos PAC"])
+        tab1, tab2, tab3 = st.tabs(["🗺️ Visor SIGPAC", "📊 Resumen Recintos", "📋 Datos PAC"])
         
         with tab1:
-            st.markdown("### Mapa con Parcelas y Capa SIGPAC")
+            st.markdown("### Visor Oficial SIGPAC (Junta de CyL / MAPA)")
+            st.info("💡 Usa este visor oficial interactivo para buscar polígonos y parcelas directamente con los lindes oficiales.")
             
-            # Crear mapa centrado en la zona de Castrojeriz (Burgos)
-            m = folium.Map(location=[42.2881, -4.1378], zoom_start=14)
-            
-            # Capa 1: Ortofoto Satélite de España (PNOA)
-            folium.TileLayer(
-                tiles='https://www.ign.es/wms-inspire/pnoa-ma?SERVICE=WMS&REQUEST=GetMap&LAYERS=OI.OrthoimageCoverage&STYLES=&FORMAT=image/png&TRANSPARENT=TRUE&VERSION=1.3.0&WIDTH=256&HEIGHT=256&CRS=EPSG:3857&BBOX={bbox}',
-                attr='IGN - PNOA',
-                name='Foto Satélite (PNOA)',
-                overlay=False
-            ).add_to(m)
-
-            # Capa 2: Capa oficial del SIGPAC (Líneas y Recintos del Ministerio)
-            folium.WmsTileLayer(
-                url='https://wms.mapama.gob.es/wms/wms.aspx',
-                layers='PARCELA,RECINTO',
-                fmt='image/png',
-                transparent=True,
-                name='Líneas del SIGPAC',
-                overlay=True,
-                control=True
-            ).add_to(m)
-
-            folium.LayerControl().add_to(m)
-            
-            st.info("💡 La capa de parcelas del SIGPAC se dibuja automáticamente en el mapa. Haz zoom en la zona de tus fincas para ver los lindes amarillos/rojos.")
-            st_folium(m, width="100%", height=600)
+            # Cargar visor interactivo de mapas de forma estable
+            components.iframe("https://sga.jcyl.es/visor/", height=600, scrolling=True)
             
         with tab2:
             st.markdown("### Resumen de Datos")
